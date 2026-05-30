@@ -1,2 +1,2 @@
--r backend/requirements.txt
+-r backend/requirements-optimized.txt
 gunicorn==22.0.0
