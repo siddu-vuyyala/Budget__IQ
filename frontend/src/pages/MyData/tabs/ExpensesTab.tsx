@@ -1,17 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { DollarSign, Plus, Trash2, Edit2, X, ShoppingCart, Home, Car, Utensils, Heart, Plane, Smartphone, Zap } from 'lucide-react';
+import { SERVER_URL, authenticatedFetch } from '../../../utils';
+import { toast } from 'sonner';
 
 interface Expense {
-  id: string;
+  id?: string;
   name: string;
+  category: string;
   amount: number;
-  category: 'shopping' | 'housing' | 'transport' | 'food' | 'health' | 'travel' | 'utilities' | 'other';
-  frequency: 'daily' | 'weekly' | 'monthly' | 'yearly' | 'one-time';
+  frequency: 'monthly' | 'yearly' | 'one-time' | 'weekly' | 'daily' | 'one-time';
   date: string;
   isEssential: boolean;
 }
 
-const categoryIcons = {
+const categoryIcons: Record<string, React.ComponentType<any>> = {
   shopping: ShoppingCart,
   housing: Home,
   transport: Car,
@@ -22,7 +24,7 @@ const categoryIcons = {
   other: Smartphone
 };
 
-const categoryColors = {
+const categoryColors: Record<string, string> = {
   shopping: 'blue',
   housing: 'green',
   transport: 'orange',
@@ -37,55 +39,107 @@ export const ExpensesTab = () => {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [selectedExpense, setSelectedExpense] = useState<string | null>(null);
+  const [selectedExpense, setSelectedExpense] = useState<string | null>(null); // stores id
+  const [loading, setLoading] = useState(true);
   const [formData, setFormData] = useState({
     name: '',
+    category: 'housing' as const,
     amount: '',
-    category: 'housing',
-    frequency: 'monthly',
+    frequency: 'monthly' as const,
     date: new Date().toISOString().split('T')[0],
-    isEssential: true
+    isEssential: false
   });
 
-  // Load expenses from localStorage on component mount
+  // Load expenses from backend on component mount
   useEffect(() => {
-    const savedExpenses = localStorage.getItem('userExpenses');
-    if (savedExpenses) {
+    const fetchExpenses = async () => {
       try {
-        const parsedExpenses = JSON.parse(savedExpenses);
-        setExpenses(parsedExpenses);
+        setLoading(true);
+        const response = await authenticatedFetch(`${SERVER_URL}/expenses`, { method: 'GET' });
+        if (!response.ok) {
+          if (response.status === 401) {
+            toast.error('Session expired. Please login again.');
+            return;
+          }
+          throw new Error('Failed to fetch expenses');
+        }
+        const data = await response.json();
+        const normalize = (item: any, idx: number) => ({
+          id: item.id || item._id || item.name?.toString().replace(/\s+/g, '_').toLowerCase() || Math.random().toString(36).substr(2,9),
+          name: item.name || item.title || `Expense ${idx+1}`,
+          category: item.category || item.type || 'other',
+          amount: Number(item.amount || item.value || 0),
+          frequency: item.frequency || 'monthly',
+          date: item.date || new Date().toISOString().split('T')[0],
+          isEssential: Boolean(item.isEssential || item.essential || false)
+        });
+
+        const expenseData = Array.isArray(data) && data.length > 0 ? data.map(normalize) : [
+          { name: 'Rent', category: 'housing', amount: 20000, frequency: 'monthly' as const, date: new Date().toISOString().split('T')[0], isEssential: true },
+          { name: 'Groceries', category: 'food', amount: 10000, frequency: 'monthly' as const, date: new Date().toISOString().split('T')[0], isEssential: true },
+          { name: 'Gas', category: 'transport', amount: 8000, frequency: 'monthly' as const, date: new Date().toISOString().split('T')[0], isEssential: true },
+          { name: 'Utilities', category: 'utilities', amount: 5000, frequency: 'monthly' as const, date: new Date().toISOString().split('T')[0], isEssential: true },
+          { name: 'Entertainment', category: 'other', amount: 7000, frequency: 'monthly' as const, date: new Date().toISOString().split('T')[0], isEssential: false }
+        ].map(normalize);
+        setExpenses(expenseData);
       } catch (error) {
-        console.error('Error loading expenses from localStorage:', error);
-        setExpenses([]);
+        console.error('Error loading expenses from backend:', error);
+        setExpenses([
+          { id: Math.random().toString(36).substr(2,9), name: 'Rent', category: 'housing', amount: 20000, frequency: 'monthly' as const, date: new Date().toISOString().split('T')[0], isEssential: true },
+          { id: Math.random().toString(36).substr(2,9), name: 'Groceries', category: 'food', amount: 10000, frequency: 'monthly' as const, date: new Date().toISOString().split('T')[0], isEssential: true },
+          { id: Math.random().toString(36).substr(2,9), name: 'Gas', category: 'transport', amount: 8000, frequency: 'monthly' as const, date: new Date().toISOString().split('T')[0], isEssential: true },
+          { id: Math.random().toString(36).substr(2,9), name: 'Utilities', category: 'utilities', amount: 5000, frequency: 'monthly' as const, date: new Date().toISOString().split('T')[0], isEssential: true },
+          { id: Math.random().toString(36).substr(2,9), name: 'Entertainment', category: 'other', amount: 7000, frequency: 'monthly' as const, date: new Date().toISOString().split('T')[0], isEssential: false }
+        ]);
+        toast.error('Failed to load expenses. Showing default data.');
+      } finally {
+        setLoading(false);
       }
-    }
+    };
+
+    fetchExpenses();
   }, []);
 
-  // Save expenses to localStorage whenever they change
+  // Save expenses to backend whenever they change
   useEffect(() => {
-    localStorage.setItem('userExpenses', JSON.stringify(expenses));
+    if (expenses.length > 0) {
+      const saveExpenses = async () => {
+        try {
+          await authenticatedFetch(`${SERVER_URL}/expenses`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(expenses)
+          });
+        } catch (error) {
+          console.error('Error saving expenses to backend:', error);
+          toast.error('Failed to save expense data');
+        }
+      };
+
+      saveExpenses();
+    }
   }, [expenses]);
 
   const handleAdd = () => {
     setIsEditing(false);
     setFormData({
       name: '',
-      amount: '',
       category: 'housing',
+      amount: '',
       frequency: 'monthly',
       date: new Date().toISOString().split('T')[0],
-      isEssential: true
+      isEssential: false
     });
     setIsModalOpen(true);
   };
 
   const handleEdit = (expense: Expense) => {
     setIsEditing(true);
-    setSelectedExpense(expense.id);
+    setSelectedExpense(expense.id || null);
     setFormData({
       name: expense.name,
+      category: expense.category as any,
       amount: expense.amount.toString(),
-      category: expense.category,
       frequency: expense.frequency,
       date: expense.date,
       isEssential: expense.isEssential
@@ -93,26 +147,29 @@ export const ExpensesTab = () => {
     setIsModalOpen(true);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = (id: string | undefined) => {
+    if (!id) return;
     setExpenses(expenses.filter(expense => expense.id !== id));
+    toast.success('Expense removed');
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const newExpense: Expense = {
-      id: isEditing ? selectedExpense! : Math.random().toString(36).substr(2, 9),
       name: formData.name,
+      category: formData.category,
       amount: parseFloat(formData.amount),
-      category: formData.category as Expense['category'],
-      frequency: formData.frequency as Expense['frequency'],
+      frequency: formData.frequency,
       date: formData.date,
       isEssential: formData.isEssential
     };
 
-    if (isEditing) {
-      setExpenses(expenses.map(expense => expense.id === selectedExpense ? newExpense : expense));
+    if (isEditing && selectedExpense) {
+      setExpenses(expenses.map(expense => expense.id === selectedExpense ? { ...newExpense, id: selectedExpense } : expense));
+      toast.success('Expense updated');
     } else {
-      setExpenses([...expenses, newExpense]);
+      setExpenses([...expenses, { ...newExpense, id: Math.random().toString(36).substr(2,9) }]);
+      toast.success('Expense added');
     }
 
     setIsModalOpen(false);
@@ -280,12 +337,13 @@ export const ExpensesTab = () => {
         </div>
 
         <div className="space-y-4">
-          {expenses.map((expense) => {
-            const Icon = categoryIcons[expense.category];
-            const color = categoryColors[expense.category];
+          {expenses.map((expense, idx) => {
+            const Icon = categoryIcons[expense.category] || ShoppingCart;
+            const color = categoryColors[expense.category] || 'gray';
+            const key = expense.id || expense.name || `expense-${idx}`;
             return (
               <div
-                key={expense.id}
+                key={key}
                 className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 hover:shadow-md transition-shadow"
               >
                 <div className="flex items-center justify-between">

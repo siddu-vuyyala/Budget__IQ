@@ -1,0 +1,16 @@
+# Core Flask packages (install first)
+Flask
+Flask-Cors
+python-dotenv
+
+# Database (using binary to avoid build issues)
+psycopg2-binary
+SQLAlchemy
+
+# Security
+bcrypt
+PyJWT
+
+# API & Data
+requests
+pydantic

@@ -1,12 +1,26 @@
 import { Link, useLocation } from 'react-router-dom';
 import { BarChart2, BookOpen, TrendingUp, User, LineChart, LayoutDashboard, Database, MessageSquare, Newspaper, Calculator, HelpCircle } from 'lucide-react';
-import { useUser } from '@clerk/clerk-react';
 import { useTour } from '../context/TourContext';
+import { useState, useEffect } from 'react';
 
 const Sidebar = () => {
   const location = useLocation();
-  const { user } = useUser();
   const { openTour } = useTour();
+  const [userEmail, setUserEmail] = useState<string>('');
+
+  useEffect(() => {
+    // Try to get user email from localStorage or API
+    const token = localStorage.getItem('budgetiq_auth_token');
+    if (token) {
+      // Decode JWT to get user info (basic decoding)
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        setUserEmail(payload.email || 'User');
+      } catch (e) {
+        setUserEmail('User');
+      }
+    }
+  }, []);
 
   const menuItems = [
     { path: '/portfolio', icon: LayoutDashboard, label: 'Portfolio', tourClass: 'tour-portfolio' },
@@ -59,23 +73,15 @@ const Sidebar = () => {
             to="/portfolio/profile"
             className="flex items-center space-x-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors p-2 rounded-lg group tour-profile"
           >
-            {user?.imageUrl ? (
-              <img 
-                src={user.imageUrl} 
-                alt="Profile" 
-                className="h-10 w-10 rounded-full object-cover ring-2 ring-indigo-500 dark:ring-indigo-400"
-              />
-            ) : (
-              <div className="h-10 w-10 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center">
-                <User className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-              </div>
-            )}
+            <div className="h-10 w-10 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center">
+              <User className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+            </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-gray-900 dark:text-white truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
-                {user?.fullName || 'User Name'}
+                My Account
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                {user?.primaryEmailAddress?.emailAddress || 'email@example.com'}
+                {userEmail || 'Loading...'}
               </p>
             </div>
           </Link>

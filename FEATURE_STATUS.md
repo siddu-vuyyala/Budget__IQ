@@ -76,3 +76,5 @@
 - Visualization: 100% working
 - Missing: 1 button handler (Global View - non-critical)
 
+Scan and normalize other My Data tabs (IncomeTab, ExpensesTab, AssetsTab, GoalsTab) to prevent similar issues.
+Add a lightweight Error Boundary around the My Data area so a single failing tab doesn't white-screen the whole page.

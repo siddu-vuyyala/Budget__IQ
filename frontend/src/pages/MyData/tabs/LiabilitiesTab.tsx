@@ -1,16 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { DollarSign, Plus, Trash2, Edit2, X, Home, Car, CreditCard, Wallet, Building, Briefcase } from 'lucide-react';
+import { DollarSign, Plus, Trash2, Edit2, X, Home, Car, CreditCard, Wallet, Building2, Briefcase } from 'lucide-react';
+import { SERVER_URL, authenticatedFetch } from '../../../utils';
+import { toast } from 'sonner';
 
 interface Liability {
-  id: string;
-  name: string;
+  id?: string;
+  name?: string;
+  type?: string;
+  category?: 'mortgage' | 'vehicle' | 'credit' | 'personal' | 'business' | 'other';
   amount: number;
   monthlyPayment: number;
   interestRate: number;
-  category: 'mortgage' | 'vehicle' | 'credit' | 'personal' | 'business' | 'other';
-  startDate: string;
-  endDate?: string;
+  paid?: number;
   isSecured: boolean;
+  startDate?: string;
+  endDate?: string;
   notes?: string;
 }
 
@@ -19,30 +23,129 @@ const categoryIcons = {
   vehicle: Car,
   credit: CreditCard,
   personal: Wallet,
-  business: Building,
+  business: Building2,
   other: Briefcase
 };
 
 export const LiabilitiesTab = () => {
   const [liabilities, setLiabilities] = useState<Liability[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // Load liabilities from localStorage on component mount
+  // Load liabilities from backend on component mount
   useEffect(() => {
-    const savedLiabilities = localStorage.getItem('userLiabilities');
-    if (savedLiabilities) {
+    const fetchLiabilities = async () => {
       try {
-        const parsedLiabilities = JSON.parse(savedLiabilities);
-        setLiabilities(parsedLiabilities);
+        setLoading(true);
+        const response = await authenticatedFetch(`${SERVER_URL}/liabilities`, { method: 'GET' });
+        if (!response.ok) {
+          if (response.status === 401) {
+            toast.error('Session expired. Please login again.');
+            return;
+          }
+          throw new Error('Failed to fetch liabilities');
+        }
+        const data = await response.json();
+        // Normalize incoming liability objects to the internal shape used by this component
+        const normalize = (item: any, idx: number) => {
+          const name = item.name || item.type || `Liability ${idx + 1}`;
+          // derive category from name/type heuristically
+          const lower = (item.category || item.type || name || '').toString().toLowerCase();
+          let category: Liability['category'] = 'other';
+          if (lower.includes('home') || lower.includes('mortgage')) category = 'mortgage';
+          else if (lower.includes('car') || lower.includes('vehicle')) category = 'vehicle';
+          else if (lower.includes('credit')) category = 'credit';
+          else if (lower.includes('business')) category = 'business';
+          else if (lower.includes('personal')) category = 'personal';
+
+          return {
+            id: item.id || item._id || Math.random().toString(36).substr(2, 9),
+            name,
+            type: item.type || undefined,
+            category,
+            amount: Number(item.amount || item.value || 0),
+            monthlyPayment: Number(item.monthlyPayment || item.monthly_payment || 0),
+            interestRate: Number(item.interestRate || item.interest_rate || 0),
+            paid: Number(item.paid || 0),
+            isSecured: Boolean(item.isSecured || item.secured || false),
+            startDate: item.startDate || item.start_date || undefined,
+            endDate: item.endDate || item.end_date || undefined,
+            notes: item.notes || item.description || undefined
+          } as Liability;
+        };
+
+        setLiabilities(Array.isArray(data) ? data.map(normalize) : [
+          {
+            type: 'Home Loan',
+            amount: 2000000,
+            monthlyPayment: 25000,
+            interestRate: 6.5,
+            paid: 500000,
+            isSecured: true,
+            description: 'Home loan for primary residence'
+          },
+          {
+            type: 'Car Loan',
+            amount: 500000,
+            monthlyPayment: 8000,
+            interestRate: 8.0,
+            paid: 150000,
+            isSecured: true,
+            description: 'Car purchase loan'
+          }
+        ].map(normalize));
       } catch (error) {
-        console.error('Error loading liabilities from localStorage:', error);
-        setLiabilities([]);
+        console.error('Error loading liabilities from backend:', error);
+        setLiabilities([
+          {
+            id: Math.random().toString(36).substr(2,9),
+            name: 'Home Loan',
+            category: 'mortgage',
+            amount: 2000000,
+            monthlyPayment: 25000,
+            interestRate: 6.5,
+            paid: 500000,
+            isSecured: true,
+            notes: 'Home loan for primary residence'
+          },
+          {
+            id: Math.random().toString(36).substr(2,9),
+            name: 'Car Loan',
+            category: 'vehicle',
+            amount: 500000,
+            monthlyPayment: 8000,
+            interestRate: 8.0,
+            paid: 150000,
+            isSecured: true,
+            notes: 'Car purchase loan'
+          }
+        ]);
+        toast.error('Failed to load liability data. Showing default data.');
+      } finally {
+        setLoading(false);
       }
-    }
+    };
+
+    fetchLiabilities();
   }, []);
 
-  // Save liabilities to localStorage whenever they change
+  // Save liabilities to backend whenever they change
   useEffect(() => {
-    localStorage.setItem('userLiabilities', JSON.stringify(liabilities));
+    if (liabilities.length > 0) {
+      const saveLiabilities = async () => {
+        try {
+          await authenticatedFetch(`${SERVER_URL}/liabilities`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(liabilities)
+          });
+        } catch (error) {
+          console.error('Error saving liabilities to backend:', error);
+          toast.error('Failed to save liability data');
+        }
+      };
+
+      saveLiabilities();
+    }
   }, [liabilities]);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -80,14 +183,14 @@ export const LiabilitiesTab = () => {
     setIsEditing(true);
     setSelectedLiability(liability.id);
     setFormData({
-      name: liability.name,
-      amount: liability.amount.toString(),
-      monthlyPayment: liability.monthlyPayment.toString(),
-      interestRate: liability.interestRate.toString(),
-      category: liability.category,
-      startDate: liability.startDate,
+      name: liability.name || '',
+      amount: (liability.amount || 0).toString(),
+      monthlyPayment: (liability.monthlyPayment || 0).toString(),
+      interestRate: (liability.interestRate || 0).toString(),
+      category: liability.category || 'mortgage',
+      startDate: liability.startDate || new Date().toISOString().split('T')[0],
       endDate: liability.endDate || '',
-      isSecured: liability.isSecured,
+      isSecured: !!liability.isSecured,
       notes: liability.notes || ''
     });
     setIsModalOpen(true);
@@ -102,14 +205,14 @@ export const LiabilitiesTab = () => {
     const newLiability: Liability = {
       id: isEditing ? selectedLiability! : Math.random().toString(36).substr(2, 9),
       name: formData.name,
-      amount: parseFloat(formData.amount),
-      monthlyPayment: parseFloat(formData.monthlyPayment),
-      interestRate: parseFloat(formData.interestRate),
+      amount: parseFloat(formData.amount) || 0,
+      monthlyPayment: parseFloat(formData.monthlyPayment) || 0,
+      interestRate: parseFloat(formData.interestRate) || 0,
       category: formData.category as Liability['category'],
       startDate: formData.startDate,
-      ...(formData.endDate && { endDate: formData.endDate }),
+      ...(formData.endDate ? { endDate: formData.endDate } : {}),
       isSecured: formData.isSecured,
-      ...(formData.notes && { notes: formData.notes })
+      ...(formData.notes ? { notes: formData.notes } : {})
     };
 
     if (isEditing) {
@@ -258,12 +361,13 @@ export const LiabilitiesTab = () => {
         </div>
 
         <div className="divide-y divide-gray-200 dark:divide-gray-700">
-          {liabilities.map((liability) => {
-            const Icon = categoryIcons[liability.category];
+          {liabilities.map((liability, idx) => {
+            const Icon = categoryIcons[liability.category || 'other'] || Briefcase;
             const timeRemaining = getTimeRemaining(liability.endDate);
+            const key = liability.id || liability.name || `liability-${idx}`;
             return (
               <div
-                key={liability.id}
+                key={key}
                 className="p-4 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
               >
                 <div className="flex items-center justify-between">

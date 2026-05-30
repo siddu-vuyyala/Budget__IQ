@@ -8,6 +8,7 @@ import {
   Target
 } from 'lucide-react';
 import TopLoadingBar from 'react-top-loading-bar';
+import ErrorBoundary from '../../components/ErrorBoundary';
 
 import { GoalsTab } from './tabs/GoalsTab';
 import { RiskToleranceTab } from './tabs/RiskToleranceTab';
@@ -123,7 +124,9 @@ const MyData = () => {
         </div>
 
         {/* Tab Content */}
-        {renderTabContent()}
+        <ErrorBoundary>
+          {renderTabContent()}
+        </ErrorBoundary>
       </div>
     </div>
   );

@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 import Tour from "reactour";
-import { useUser } from "@clerk/clerk-react";
 import { useTour } from "../context/TourContext";
 
 interface DashboardTourProps {
@@ -8,23 +7,17 @@ interface DashboardTourProps {
 }
 
 const DashboardTour = ({ children }: DashboardTourProps) => {
-  const { user } = useUser();
   const { isTourOpen, openTour, closeTour } = useTour();
 
-  // Check if we should show the tour on mount
+  // Check if we should show the tour on mount (first visit only)
   useEffect(() => {
-    if (user?.lastSignInAt) {
-      const lastSignInTime = new Date(user.lastSignInAt).getTime();
-      const lastTourTime = localStorage.getItem("lastTourTime");
-      
-      // Show tour if this is a new sign in (lastTourTime is before lastSignInTime)
-      if (!lastTourTime || new Date(lastTourTime).getTime() < lastSignInTime) {
-        openTour();
-        // Update the last tour time
-        localStorage.setItem("lastTourTime", new Date().toISOString());
-      }
+    const hasSeenTour = localStorage.getItem("hasSeenDashboardTour");
+    
+    if (!hasSeenTour) {
+      openTour();
+      localStorage.setItem("hasSeenDashboardTour", "true");
     }
-  }, [user, openTour]);
+  }, [openTour]);
 
   const steps = [
     {

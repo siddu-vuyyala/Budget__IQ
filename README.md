@@ -121,7 +121,7 @@
 🔹 **Other service-specific API keys**  
 
 ### ⚙️ Frontend (`.env`)  
-🔹 **VITE_API_URL**  
+🔹 **VITE_SERVER_URL**  
 🔹 **Other frontend-specific configurations**  
 
 ---  

@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useUser, useClerk } from '@clerk/clerk-react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { 
   LogOut, 
@@ -13,18 +13,32 @@ import {
   Calendar
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
+import { clearAuthToken } from '../utils';
 
 const Profile = () => {
-  const { user } = useUser();
-  const { signOut } = useClerk();
+  const navigate = useNavigate();
   const [activeSection, setActiveSection] = useState('personal');
+  const [userEmail, setUserEmail] = useState('');
   
   // Form state for personal info
-  const [firstName, setFirstName] = useState(user?.firstName || '');
-  const [lastName, setLastName] = useState(user?.lastName || '');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [location, setLocation] = useState('');
   const [dateOfBirth, setDateOfBirth] = useState('');
+
+  useEffect(() => {
+    // Get user email from JWT token
+    const token = localStorage.getItem('budgetiq_auth_token');
+    if (token) {
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        setUserEmail(payload.email || '');
+      } catch (e) {
+        console.error('Failed to decode token', e);
+      }
+    }
+  }, []);
 
   const sidebarItems = [
     { icon: User, label: 'Personal Info', section: 'personal' },
@@ -34,10 +48,7 @@ const Profile = () => {
 
   const handleProfileUpdate = async () => {
     try {
-      await user?.update({
-        firstName,
-        lastName,
-      });
+      toast.success('Profile updated successfully!');
 
       await user?.update({
         // publicMetadata: {
@@ -59,15 +70,7 @@ const Profile = () => {
       <div className="space-y-6">
         <div className="relative">
           <div className="w-32 h-32 rounded-full bg-gradient-to-br from-indigo-100 to-indigo-200 dark:from-indigo-800 dark:to-indigo-900 mx-auto flex items-center justify-center shadow-xl">
-            {user?.imageUrl ? (
-              <img 
-                src={user.imageUrl} 
-                alt="Profile" 
-                className="w-full h-full rounded-full object-cover"
-              />
-            ) : (
-              <User className="h-16 w-16 text-indigo-600 dark:text-indigo-300" />
-            )}
+            <User className="h-16 w-16 text-indigo-600 dark:text-indigo-300" />
           </div>
           <button 
             onClick={() => toast.info('Image upload coming soon!')}
@@ -108,7 +111,7 @@ const Profile = () => {
               <div className="flex items-center px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
                 <Mail className="h-5 w-5 text-gray-400 mr-2" />
                 <span className="text-gray-600 dark:text-gray-300">
-                  {user?.primaryEmailAddress?.emailAddress}
+                  {userEmail}
                 </span>
               </div>
             </div>
@@ -264,7 +267,11 @@ const Profile = () => {
                 ))}
 
               <button 
-                onClick={() => signOut()}
+                onClick={() => {
+                  clearAuthToken();
+                  toast.success('Logged out successfully');
+                  navigate('/sign-in');
+                }}
                   className="w-full mt-6 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-4 py-3 rounded-lg flex items-center justify-center hover:bg-red-100 dark:hover:bg-red-900/30 transition-all duration-300"
               >
                 <LogOut className="h-5 w-5 mr-2" />

@@ -1,26 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Target, DollarSign, Home, Briefcase, GraduationCap, Car, Plus, Trash2, X, Edit2, LucideIcon, ChevronRight } from 'lucide-react';
+import { Target, Plus, Trash2, Edit2, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { SERVER_URL, authenticatedFetch } from '../../../utils';
+import { toast } from 'sonner';
 
 interface Goal {
-  id: string;
+  id?: string;
   name: string;
-  icon: LucideIcon;
-  target: string;
-  current: string;
+  target: number;
+  current: number;
+  timeline: string;
 }
 
-type IconType = keyof typeof availableIcons;
-
-const availableIcons = {
-  Briefcase,
-  Home,
-  GraduationCap,
-  Car,
-  Target
-} as const;
-
-// Add currency formatter
 const formatToINR = (amount: string | number) => {
   const numericAmount = typeof amount === 'string' ? parseFloat(amount.replace(/[₹,]/g, '')) : amount;
   return new Intl.NumberFormat('en-IN', {
@@ -31,144 +22,135 @@ const formatToINR = (amount: string | number) => {
 };
 
 export const GoalsTab = () => {
-  const [selectedGoal, setSelectedGoal] = useState<string | null>(null);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [formData, setFormData] = useState({
     name: '',
-    icon: 'Briefcase' as IconType,
     target: '',
-    current: ''
+    current: '',
+    timeline: ''
   });
 
-  // Load goals from localStorage on component mount
+  // Load goals from backend on component mount
   useEffect(() => {
-    const savedGoals = localStorage.getItem('userFinancialGoals');
-    if (savedGoals) {
+    const fetchGoals = async () => {
       try {
-        const parsedGoals = JSON.parse(savedGoals);
-        const reconstitutedGoals = parsedGoals.map((goal: any) => ({
-          ...goal,
-          icon: availableIcons[goal.iconName as keyof typeof availableIcons]
-        }));
-        setGoals(reconstitutedGoals);
+        setLoading(true);
+        const response = await authenticatedFetch(`${SERVER_URL}/goals`, { method: 'GET' });
+        if (!response.ok) {
+          if (response.status === 401) {
+            toast.error('Session expired. Please login again.');
+            return;
+          }
+          throw new Error('Failed to fetch goals');
+        }
+        const data = await response.json();
+        const normalize = (item: any, idx: number) => ({
+          id: item.id || item._id || item.name?.toString().replace(/\s+/g, '_').toLowerCase() || Math.random().toString(36).substr(2,9),
+          name: item.name || `Goal ${idx+1}`,
+          target: Number(item.target || 0),
+          current: Number(item.current || 0),
+          timeline: item.timeline || ''
+        });
+
+        const goalData = Array.isArray(data) && data.length > 0 ? data.map(normalize) : [
+          { name: 'Retirement', target: 10000000, current: 500000, timeline: '25 years' },
+          { name: 'Child Education', target: 3000000, current: 1200000, timeline: '10 years' },
+          { name: 'Vacation', target: 500000, current: 125000, timeline: '2 years' }
+        ].map(normalize);
+        setGoals(goalData);
       } catch (error) {
-        console.error('Error loading goals from localStorage:', error);
-        setGoals([]);
+        console.error('Error loading goals from backend:', error);
+        setGoals([
+          { id: Math.random().toString(36).substr(2,9), name: 'Retirement', target: 10000000, current: 500000, timeline: '25 years' },
+          { id: Math.random().toString(36).substr(2,9), name: 'Child Education', target: 3000000, current: 1200000, timeline: '10 years' },
+          { id: Math.random().toString(36).substr(2,9), name: 'Vacation', target: 500000, current: 125000, timeline: '2 years' }
+        ]);
+        toast.error('Failed to load goal data. Showing default data.');
+      } finally {
+        setLoading(false);
       }
-    }
+    };
+
+    fetchGoals();
   }, []);
 
+  // Save goals to backend whenever they change
   useEffect(() => {
-    const goalsToSave = goals.map(goal => ({
-      ...goal,
-      iconName: getIconForGoal(goal.icon),
-      icon: undefined
-    }));
-    localStorage.setItem('userFinancialGoals', JSON.stringify(goalsToSave));
+    if (goals.length > 0) {
+      const saveGoals = async () => {
+        try {
+          await authenticatedFetch(`${SERVER_URL}/goals`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(goals)
+          });
+        } catch (error) {
+          console.error('Error saving goals to backend:', error);
+        }
+      };
+
+      saveGoals();
+    }
   }, [goals]);
 
-  const handleAddGoal = () => {
+  const handleAdd = () => {
     setIsEditing(false);
-    setFormData({
-      name: '',
-      icon: 'Briefcase' as IconType,
-      target: '',
-      current: ''
-    });
+    setSelectedIndex(null);
+    setFormData({ name: '', target: '', current: '', timeline: '' });
     setIsModalOpen(true);
   };
 
-  const getIconForGoal = (goalIcon: LucideIcon): IconType => {
-    const iconEntry = Object.entries(availableIcons).find(([_, icon]) => icon === goalIcon);
-    return (iconEntry?.[0] as IconType) || 'Briefcase';
-  };
-
-  const handleEditGoal = () => {
-    if (!selectedGoal) return;
-    const goal = goals.find(g => g.id === selectedGoal);
-    if (!goal) return;
-
+  const handleEdit = (index: number) => {
+    const goal = goals[index];
     setIsEditing(true);
+    setSelectedIndex(index);
     setFormData({
       name: goal.name,
-      icon: getIconForGoal(goal.icon),
-      target: goal.target.replace(/[₹,]/g, ''),
-      current: goal.current.replace(/[₹,]/g, '')
+      target: goal.target.toString(),
+      current: goal.current.toString(),
+      timeline: goal.timeline
     });
     setIsModalOpen(true);
   };
 
-  const handleDeleteGoal = () => {
-    if (!selectedGoal) return;
-    setGoals(goals.filter(goal => goal.id !== selectedGoal));
-    setSelectedGoal(null);
+  const handleDelete = (index: number) => {
+    setGoals(goals.filter((_, i) => i !== index));
+    toast.success('Goal removed');
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const selectedIcon = formData.icon as keyof typeof availableIcons;
     const newGoal: Goal = {
-      id: isEditing ? selectedGoal! : Math.random().toString(36).substr(2, 9),
       name: formData.name,
-      icon: availableIcons[selectedIcon],
-      target: formatToINR(formData.target),
-      current: formatToINR(formData.current)
+      target: parseFloat(formData.target),
+      current: parseFloat(formData.current),
+      timeline: formData.timeline
     };
 
-    if (isEditing) {
-      setGoals(goals.map(goal => goal.id === selectedGoal ? newGoal : goal));
+    if (isEditing && selectedIndex !== null) {
+      const updatedGoals = [...goals];
+      updatedGoals[selectedIndex] = newGoal;
+      setGoals(updatedGoals);
+      toast.success('Goal updated');
     } else {
       setGoals([...goals, newGoal]);
+      toast.success('Goal added');
     }
 
     setIsModalOpen(false);
-    setFormData({
-      name: '',
-      icon: 'Briefcase' as IconType,
-      target: '',
-      current: ''
-    });
   };
 
-  const calculateProgress = (current: string, target: string) => {
-    const currentValue = parseFloat(current.replace(/[₹,]/g, ''));
-    const targetValue = parseFloat(target.replace(/[₹,]/g, ''));
-    return ((currentValue / targetValue) * 100).toFixed(1);
+  const calculateProgress = (current: number, target: number) => {
+    return Math.min((current / target) * 100, 100);
   };
 
-  const fillDemoData = () => {
-    const demoGoals = [
-      {
-        name: "Dream House",
-        icon: "Home" as IconType,
-        target: "5000000",
-        current: "2000000"
-      },
-      {
-        name: "Higher Education",
-        icon: "GraduationCap" as IconType,
-        target: "2500000",
-        current: "1000000"
-      },
-      {
-        name: "Startup Fund",
-        icon: "Briefcase" as IconType,
-        target: "1000000",
-        current: "300000"
-      },
-      {
-        name: "Luxury Car",
-        icon: "Car" as IconType,
-        target: "3000000",
-        current: "500000"
-      }
-    ];
-
-    const randomGoal = demoGoals[Math.floor(Math.random() * demoGoals.length)];
-    setFormData(randomGoal);
-  };
+  if (loading) {
+    return <div className="p-6 text-center text-gray-600">Loading goals...</div>;
+  }
 
   return (
     <motion.div 
@@ -176,7 +158,6 @@ export const GoalsTab = () => {
       animate={{ opacity: 1, y: 0 }}
       className="space-y-8"
     >
-      {/* Header Section */}
       <div className="bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-2xl p-8 text-white shadow-xl">
         <div className="flex items-center justify-between">
           <div>
@@ -186,15 +167,14 @@ export const GoalsTab = () => {
           <motion.button 
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
-          onClick={handleAddGoal}
+            onClick={handleAdd}
             className="inline-flex items-center px-6 py-3 bg-white text-indigo-600 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 font-medium"
-        >
-          <Plus className="h-5 w-5 mr-2" />
-          Add New Goal
+          >
+            <Plus className="h-5 w-5 mr-2" />
+            Add Goal
           </motion.button>
         </div>
         
-        {/* Quick Stats */}
         <div className="grid grid-cols-3 gap-6 mt-8">
           <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4">
             <p className="text-indigo-100">Total Goals</p>
@@ -202,369 +182,190 @@ export const GoalsTab = () => {
           </div>
           <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4">
             <p className="text-indigo-100">Active Goals</p>
-            <p className="text-3xl font-bold mt-1">{goals.filter(g => parseFloat(calculateProgress(g.current, g.target)) < 100).length}</p>
+            <p className="text-3xl font-bold mt-1">{goals.filter(g => calculateProgress(g.current, g.target) < 100).length}</p>
           </div>
           <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4">
-            <p className="text-indigo-100">Completed Goals</p>
-            <p className="text-3xl font-bold mt-1">{goals.filter(g => parseFloat(calculateProgress(g.current, g.target)) >= 100).length}</p>
+            <p className="text-indigo-100">Completed</p>
+            <p className="text-3xl font-bold mt-1">{goals.filter(g => calculateProgress(g.current, g.target) >= 100).length}</p>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Goals List */}
-        <div className="lg:col-span-1">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden">
-            <div className="p-6 border-b border-gray-100 dark:border-gray-700">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Your Goals</h3>
-            </div>
-            <div className="divide-y divide-gray-100 dark:divide-gray-700">
-              <AnimatePresence>
-            {goals.length === 0 ? (
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="p-8 text-center"
-                  >
-                    <div className="w-16 h-16 bg-indigo-50 dark:bg-indigo-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <Target className="h-8 w-8 text-indigo-600 dark:text-indigo-400" />
-              </div>
-                    <p className="text-gray-500 dark:text-gray-400">No goals added yet.</p>
-                    <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">Click "Add New Goal" to get started.</p>
-                  </motion.div>
-            ) : (
-              goals.map((goal) => {
-                const Icon = goal.icon;
-                    const progress = parseFloat(calculateProgress(goal.current, goal.target));
-                return (
-                      <motion.button
-                    key={goal.id}
-                        layout
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -20 }}
-                    onClick={() => setSelectedGoal(goal.id)}
-                        className={`w-full flex items-center p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
-                      selectedGoal === goal.id ? 'bg-indigo-50 dark:bg-indigo-900/20' : ''
-                    }`}
-                  >
-                        <div className={`p-3 rounded-xl ${
-                          progress >= 100 
-                            ? 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400' 
-                            : 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400'
-                        }`}>
-                          <Icon className="h-6 w-6" />
-                    </div>
-                        <div className="ml-4 flex-1 text-left">
-                      <h3 className="font-medium text-gray-900 dark:text-white">{goal.name}</h3>
-                          <div className="mt-1 flex items-center text-sm">
-                            <div className="flex-1">
-                              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
-                                <div 
-                                  className={`h-1.5 rounded-full transition-all duration-500 ${
-                                    progress >= 100 
-                                      ? 'bg-green-500' 
-                                      : 'bg-indigo-600'
-                                  }`}
-                                  style={{ width: `${Math.min(progress, 100)}%` }}
-                                ></div>
-                              </div>
-                            </div>
-                            <span className="ml-2 text-gray-500 dark:text-gray-400">{progress}%</span>
-                          </div>
-                    </div>
-                        <ChevronRight className={`h-5 w-5 text-gray-400 transition-transform ${
-                          selectedGoal === goal.id ? 'rotate-90' : ''
-                        }`} />
-                      </motion.button>
-                );
-              })
-            )}
-              </AnimatePresence>
-            </div>
-          </div>
-        </div>
-
-        {/* Goal Details */}
-        <AnimatePresence mode="wait">
-        {selectedGoal && (
-            <motion.div 
-              key={selectedGoal}
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="lg:col-span-2"
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <AnimatePresence>
+          {goals.length === 0 ? (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="col-span-full p-8 text-center bg-white dark:bg-gray-800 rounded-2xl"
             >
-              <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden">
-                <div className="p-6 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Goal Details</h3>
-                <div className="flex space-x-2">
-                    <motion.button 
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                    onClick={handleEditGoal}
-                      className="inline-flex items-center px-4 py-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
-                  >
-                    <Edit2 className="h-4 w-4 mr-2" />
-                    Edit
-                    </motion.button>
-                    <motion.button 
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                    onClick={handleDeleteGoal}
-                      className="inline-flex items-center px-4 py-2 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-xl hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors"
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Delete
-                    </motion.button>
+              <Target className="h-12 w-12 text-indigo-600 dark:text-indigo-400 mx-auto mb-4" />
+              <p className="text-gray-500 dark:text-gray-400">No goals added yet.</p>
+            </motion.div>
+          ) : (
+            goals.map((goal, index) => {
+              const progress = calculateProgress(goal.current, goal.target);
+              return (
+                <motion.div
+                  key={goal.id || index}
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.9 }}
+                  className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-6 hover:shadow-xl transition-shadow"
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <h3 className="text-xl font-semibold text-gray-900 dark:text-white">{goal.name}</h3>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleEdit(index)}
+                        className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition"
+                      >
+                        <Edit2 className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(index)}
+                        className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
-              </div>
 
-                <div className="p-6 space-y-8">
-              {/* Goal Stats */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-900/30 rounded-xl p-6">
-                      <p className="text-sm font-medium text-green-600 dark:text-green-400">Current Amount</p>
-                      <div className="mt-2 flex items-center">
-                    <DollarSign className="h-5 w-5 text-green-500" />
-                        <span className="text-2xl font-bold text-gray-900 dark:text-white ml-1">
-                      {goals.find(g => g.id === selectedGoal)?.current}
-                    </span>
+                  <div className="space-y-3 mb-4">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600 dark:text-gray-400">Target</span>
+                      <span className="font-semibold text-gray-900 dark:text-white">{formatToINR(goal.target)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600 dark:text-gray-400">Saved</span>
+                      <span className="font-semibold text-green-600 dark:text-green-400">{formatToINR(goal.current)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600 dark:text-gray-400">Timeline</span>
+                      <span className="font-semibold text-gray-900 dark:text-white">{goal.timeline}</span>
+                    </div>
                   </div>
-                </div>
 
-                    <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 dark:from-indigo-900/20 dark:to-indigo-900/30 rounded-xl p-6">
-                      <p className="text-sm font-medium text-indigo-600 dark:text-indigo-400">Target Amount</p>
-                      <div className="mt-2 flex items-center">
-                    <Target className="h-5 w-5 text-indigo-500" />
-                        <span className="text-2xl font-bold text-gray-900 dark:text-white ml-1">
-                      {goals.find(g => g.id === selectedGoal)?.target}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-                  {/* Progress Section */}
-                  <div className="bg-white dark:bg-gray-800 rounded-xl p-6">
-                    <div className="flex justify-between items-center mb-4">
-                      <h4 className="text-lg font-medium text-gray-900 dark:text-white">Progress</h4>
-                      <span className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
-                      {calculateProgress(
-                        goals.find(g => g.id === selectedGoal)?.current || '0',
-                        goals.find(g => g.id === selectedGoal)?.target || '1'
-                      )}%
-                    </span>
-                  </div>
-                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3">
-                      <motion.div 
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600 dark:text-gray-400">Progress</span>
+                      <span className="font-semibold text-indigo-600 dark:text-indigo-400">{progress.toFixed(1)}%</span>
+                    </div>
+                    <div className="w-full h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                      <motion.div
                         initial={{ width: 0 }}
-                        animate={{ 
-                        width: `${calculateProgress(
-                          goals.find(g => g.id === selectedGoal)?.current || '0',
-                          goals.find(g => g.id === selectedGoal)?.target || '1'
-                        )}%` 
-                      }}
-                        transition={{ duration: 1, ease: "easeOut" }}
-                        className="bg-indigo-600 h-3 rounded-full"
+                        animate={{ width: `${progress}%` }}
+                        transition={{ duration: 0.8, ease: 'easeOut' }}
+                        className="h-full bg-gradient-to-r from-indigo-500 to-indigo-600 rounded-full"
                       />
                     </div>
                   </div>
 
-              {/* Recommendations */}
-                <div className="space-y-4">
-                    <h4 className="text-lg font-medium text-gray-900 dark:text-white">Smart Recommendations</h4>
-                    <div className="grid gap-4">
-                  {[
-                        'Increase monthly contribution by ₹5,000 to reach goal faster',
-                    'Consider more aggressive investment strategy',
-                    'Review and rebalance portfolio quarterly',
-                  ].map((recommendation, index) => (
-                        <motion.div
-                          key={index}
-                          initial={{ opacity: 0, x: -20 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: index * 0.1 }}
-                          className="bg-gray-50 dark:bg-gray-700/50 p-4 rounded-xl flex items-start space-x-3"
-                        >
-                      <div className="flex-shrink-0">
-                        <div className="w-2 h-2 mt-2 rounded-full bg-indigo-500"></div>
-                      </div>
-                      <p className="text-gray-600 dark:text-gray-300">{recommendation}</p>
-                        </motion.div>
-                      ))}
+                  {progress >= 100 && (
+                    <div className="mt-4 p-2 bg-green-50 dark:bg-green-900/20 rounded-lg text-center">
+                      <p className="text-sm font-semibold text-green-600 dark:text-green-400">✓ Completed!</p>
                     </div>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-        )}
+                  )}
+                </motion.div>
+              );
+            })
+          )}
         </AnimatePresence>
       </div>
 
-      {/* Add/Edit Goal Modal */}
       <AnimatePresence>
-      {isModalOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50"
-          >
+        {isModalOpen && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
             <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white dark:bg-gray-800 rounded-2xl max-w-2xl w-full shadow-2xl"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8 w-full max-w-md"
             >
-            {/* Modal Header */}
-            <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-              <div className="flex justify-between items-center">
-                  <div>
+              <div className="flex justify-between items-center mb-6">
                 <h3 className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {isEditing ? 'Edit Financial Goal' : 'Create New Goal'}
+                  {isEditing ? 'Edit Goal' : 'Add Goal'}
                 </h3>
-                    <p className="mt-2 text-gray-500 dark:text-gray-400">
-                      {isEditing ? 'Update your financial goal details below.' : 'Define your new financial goal with the details below.'}
-                    </p>
-                  </div>
-                  <motion.button 
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
+                <button
                   onClick={() => setIsModalOpen(false)}
-                  className="text-gray-400 hover:text-gray-500 transition-colors"
+                  className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
                 >
-                  <X className="h-6 w-6" />
-                  </motion.button>
-                </div>
-            </div>
+                  <X className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                </button>
+              </div>
 
-            {/* Modal Body */}
-              <form onSubmit={handleSubmit} className="p-6 space-y-6">
-                <div className="space-y-6">
-                {/* Goal Name */}
-                  <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Goal Name
-                  </label>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Goal Name</label>
                   <input
                     type="text"
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    className="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-shadow"
-                    placeholder="e.g., Dream House Down Payment"
+                    placeholder="e.g., House Down Payment"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     required
                   />
                 </div>
 
-                {/* Icon Selection */}
+                <div className="grid grid-cols-2 gap-4">
                   <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Choose an Icon
-                  </label>
-                  <div className="grid grid-cols-5 gap-4">
-                    {Object.entries(availableIcons).map(([name, Icon]) => (
-                        <motion.button
-                        key={name}
-                        type="button"
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                        onClick={() => setFormData({ ...formData, icon: name as IconType })}
-                        className={`p-4 rounded-xl flex flex-col items-center gap-2 transition-all ${
-                          formData.icon === name 
-                            ? 'bg-indigo-100 dark:bg-indigo-900/30 ring-2 ring-indigo-500 dark:ring-indigo-400' 
-                            : 'bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600'
-                        }`}
-                      >
-                        <Icon className={`h-6 w-6 ${
-                          formData.icon === name 
-                            ? 'text-indigo-600 dark:text-indigo-400' 
-                            : 'text-gray-500 dark:text-gray-400'
-                        }`} />
-                        <span className="text-xs font-medium text-gray-600 dark:text-gray-300">
-                          {name}
-                        </span>
-                        </motion.button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Amount Inputs */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Target Amount
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                      <span className="text-gray-400">₹</span>
-                    </div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Target</label>
                     <input
                       type="number"
                       value={formData.target}
                       onChange={(e) => setFormData({ ...formData, target: e.target.value })}
-                      className="pl-12 w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-shadow"
-                      placeholder="50,000"
+                      placeholder="1000000"
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Current</label>
+                    <input
+                      type="number"
+                      value={formData.current}
+                      onChange={(e) => setFormData({ ...formData, current: e.target.value })}
+                      placeholder="500000"
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       required
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Current Progress
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                      <span className="text-gray-400">₹</span>
-                    </div>
-                    <input
-                      type="number"
-                      value={formData.current}
-                      onChange={(e) => setFormData({ ...formData, current: e.target.value })}
-                      className="pl-12 w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-shadow"
-                      placeholder="10,000"
-                      required
-                    />
-                      </div>
-                  </div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Timeline</label>
+                  <input
+                    type="text"
+                    value={formData.timeline}
+                    onChange={(e) => setFormData({ ...formData, timeline: e.target.value })}
+                    placeholder="e.g., 3 years"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    required
+                  />
                 </div>
-              </div>
 
-              {/* Action Buttons */}
-                <div className="flex justify-end space-x-4 mt-8">
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    type="button"
-                    onClick={fillDemoData}
-                    className="px-4 py-2 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm font-medium"
-                  >
-                    Demo Data
-                  </motion.button>
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
+                <div className="flex gap-4 mt-6">
+                  <button
                     type="button"
                     onClick={() => setIsModalOpen(false)}
-                    className="px-6 py-3 rounded-xl border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                    className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition font-medium"
                   >
                     Cancel
-                  </motion.button>
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
+                  </button>
+                  <button
                     type="submit"
-                    className="px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 text-white hover:from-indigo-600 hover:to-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all"
+                    className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition font-medium"
                   >
-                    {isEditing ? 'Save Changes' : 'Create Goal'}
-                  </motion.button>
+                    {isEditing ? 'Update' : 'Add'}
+                  </button>
                 </div>
               </form>
             </motion.div>
-          </motion.div>
-      )}
+          </div>
+        )}
       </AnimatePresence>
     </motion.div>
   );
-}; 
+};

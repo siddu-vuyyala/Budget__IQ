@@ -1,13 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { DollarSign, Plus, Trash2, Edit2, X, Briefcase, Gift, Landmark, TrendingUp } from 'lucide-react';
+import { SERVER_URL, authenticatedFetch } from '../../../utils';
+import { toast } from 'sonner';
 
 interface Income {
-  id: string;
+  id?: string;
   source: string;
   amount: number;
-  frequency: 'monthly' | 'yearly' | 'one-time';
-  category: 'salary' | 'investment' | 'gift' | 'other';
-  date: string;
+  frequency?: 'monthly' | 'yearly' | 'one-time';
+  category?: 'salary' | 'investment' | 'gift' | 'other';
+  date?: string;
+  percentage: number;
 }
 
 const categoryIcons = {
@@ -21,32 +24,81 @@ export const IncomeTab = () => {
   const [incomes, setIncomes] = useState<Income[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [selectedIncome, setSelectedIncome] = useState<string | null>(null);
+  const [selectedIncome, setSelectedIncome] = useState<string | null>(null); // stores id
+  const [loading, setLoading] = useState(true);
   const [formData, setFormData] = useState({
     source: '',
     amount: '',
+    percentage: '',
     frequency: 'monthly',
     category: 'salary',
     date: new Date().toISOString().split('T')[0]
   });
 
-  // Load incomes from localStorage on component mount
+  // Load incomes from backend on component mount
   useEffect(() => {
-    const savedIncomes = localStorage.getItem('userIncomes');
-    if (savedIncomes) {
+    const fetchIncomes = async () => {
       try {
-        const parsedIncomes = JSON.parse(savedIncomes);
-        setIncomes(parsedIncomes);
+        setLoading(true);
+        const response = await authenticatedFetch(`${SERVER_URL}/income`, { method: 'GET' });
+        if (!response.ok) {
+          if (response.status === 401) {
+            toast.error('Session expired. Please login again.');
+            return;
+          }
+          throw new Error('Failed to fetch income');
+        }
+        const data = await response.json();
+        const normalize = (item: any, idx: number) => ({
+          id: item.id || item._id || item.source?.toString().replace(/\s+/g, '_').toLowerCase() || Math.random().toString(36).substr(2,9),
+          source: item.source || item.name || `Income ${idx+1}`,
+          amount: Number(item.amount || item.value || 0),
+          percentage: Number(item.percentage || 0),
+          frequency: item.frequency || 'monthly',
+          category: item.category || 'other',
+          date: item.date || new Date().toISOString().split('T')[0]
+        });
+
+        const incomeData = Array.isArray(data) && data.length > 0 ? data.map(normalize) : [
+          { source: 'Salary', amount: 80000, percentage: 70, category: 'salary', frequency: 'monthly' },
+          { source: 'Investments', amount: 25000, percentage: 22, category: 'investment', frequency: 'monthly' },
+          { source: 'Other', amount: 9000, percentage: 8, category: 'other', frequency: 'monthly' }
+        ].map(normalize);
+        setIncomes(incomeData);
       } catch (error) {
-        console.error('Error loading incomes from localStorage:', error);
-        setIncomes([]);
+        console.error('Error loading incomes from backend:', error);
+        setIncomes([
+          { id: Math.random().toString(36).substr(2,9), source: 'Salary', amount: 80000, percentage: 70, category: 'salary', frequency: 'monthly' },
+          { id: Math.random().toString(36).substr(2,9), source: 'Investments', amount: 25000, percentage: 22, category: 'investment', frequency: 'monthly' },
+          { id: Math.random().toString(36).substr(2,9), source: 'Other', amount: 9000, percentage: 8, category: 'other', frequency: 'monthly' }
+        ]);
+        toast.error('Failed to load income data. Showing default data.');
+      } finally {
+        setLoading(false);
       }
-    }
+    };
+
+    fetchIncomes();
   }, []);
 
-  // Save incomes to localStorage whenever they change
+  // Save incomes to backend whenever they change
   useEffect(() => {
-    localStorage.setItem('userIncomes', JSON.stringify(incomes));
+    if (incomes.length > 0) {
+      const saveIncomes = async () => {
+        try {
+          await authenticatedFetch(`${SERVER_URL}/income`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(incomes)
+          });
+        } catch (error) {
+          console.error('Error saving incomes to backend:', error);
+          toast.error('Failed to save income data');
+        }
+      };
+
+      saveIncomes();
+    }
   }, [incomes]);
 
   const handleAdd = () => {
@@ -54,6 +106,7 @@ export const IncomeTab = () => {
     setFormData({
       source: '',
       amount: '',
+      percentage: '',
       frequency: 'monthly',
       category: 'salary',
       date: new Date().toISOString().split('T')[0]
@@ -63,36 +116,41 @@ export const IncomeTab = () => {
 
   const handleEdit = (income: Income) => {
     setIsEditing(true);
-    setSelectedIncome(income.id);
+    setSelectedIncome(income.id || null);
     setFormData({
       source: income.source,
       amount: income.amount.toString(),
-      frequency: income.frequency,
-      category: income.category,
-      date: income.date
+      percentage: income.percentage.toString(),
+      frequency: income.frequency || 'monthly',
+      category: income.category || 'salary',
+      date: income.date || new Date().toISOString().split('T')[0]
     });
     setIsModalOpen(true);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = (id: string | undefined) => {
+    if (!id) return;
     setIncomes(incomes.filter(income => income.id !== id));
+    toast.success('Income removed');
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const newIncome: Income = {
-      id: isEditing ? selectedIncome! : Math.random().toString(36).substr(2, 9),
       source: formData.source,
       amount: parseFloat(formData.amount),
+      percentage: parseFloat(formData.percentage),
       frequency: formData.frequency as 'monthly' | 'yearly' | 'one-time',
       category: formData.category as 'salary' | 'investment' | 'gift' | 'other',
       date: formData.date
     };
 
-    if (isEditing) {
-      setIncomes(incomes.map(income => income.id === selectedIncome ? newIncome : income));
+    if (isEditing && selectedIncome) {
+      setIncomes(incomes.map(income => income.id === selectedIncome ? { ...newIncome, id: selectedIncome } : income));
+      toast.success('Income updated');
     } else {
-      setIncomes([...incomes, newIncome]);
+      setIncomes([...incomes, { ...newIncome, id: Math.random().toString(36).substr(2,9) }]);
+      toast.success('Income added');
     }
 
     setIsModalOpen(false);
@@ -201,11 +259,12 @@ export const IncomeTab = () => {
         </div>
 
         <div className="space-y-4">
-          {incomes.map((income) => {
-            const Icon = categoryIcons[income.category];
+          {incomes.map((income, idx) => {
+            const Icon = categoryIcons[income.category] || Landmark;
+            const key = income.id || income.source || `income-${idx}`;
             return (
               <div
-                key={income.id}
+                key={key}
                 className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 hover:shadow-md transition-shadow"
               >
                 <div className="flex items-center justify-between">

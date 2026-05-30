@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { DollarSign, Plus, Trash2, Edit2, X, Building2, Briefcase, Car, Landmark, Coins, CreditCard } from 'lucide-react';
+import { SERVER_URL, authenticatedFetch } from '../../../utils';
+import { toast } from 'sonner';
 
 interface Asset {
-  id: string;
+  id?: string;
   name: string;
   value: number;
-  category: 'realestate' | 'investments' | 'vehicles' | 'bank' | 'cash' | 'other';
+  category: string;
   purchaseDate?: string;
   appreciationRate?: number;
   notes?: string;
@@ -31,22 +33,47 @@ const categoryColors = {
 
 export const AssetsTab = () => {
   const [assets, setAssets] = useState<Asset[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // Load assets from localStorage on component mount
+  // Load assets from backend on component mount
   useEffect(() => {
-    const savedAssets = localStorage.getItem('userAssets');
-    if (savedAssets) {
+    const fetchAssets = async () => {
       try {
-        const parsedAssets = JSON.parse(savedAssets);
-        setAssets(parsedAssets);
+        setLoading(true);
+        // Using portfolio assets endpoint
+        const response = await authenticatedFetch(`${SERVER_URL}/portfolio/assets`, { method: 'GET' });
+        if (!response.ok) {
+          if (response.status === 401) {
+            toast.error('Session expired. Please login again.');
+            return;
+          }
+          throw new Error('Failed to fetch assets');
+        }
+        const data = await response.json();
+        const normalize = (item: any, idx: number) => ({
+          id: item.id || item._id || item.name?.toString().replace(/\s+/g, '_').toLowerCase() || Math.random().toString(36).substr(2,9),
+          name: item.name || item.title || `Asset ${idx+1}`,
+          value: Number(item.value || item.amount || 0),
+          category: item.category || item.type || 'other',
+          purchaseDate: item.purchaseDate || item.purchase_date || undefined,
+          appreciationRate: item.appreciationRate !== undefined ? Number(item.appreciationRate) : undefined,
+          notes: item.notes || item.description || undefined
+        });
+
+        setAssets(Array.isArray(data) ? data.map(normalize) : []);
       } catch (error) {
-        console.error('Error loading assets from localStorage:', error);
+        console.error('Error loading assets from backend:', error);
         setAssets([]);
+        toast.error('Failed to load asset data');
+      } finally {
+        setLoading(false);
       }
-    }
+    };
+
+    fetchAssets();
   }, []);
 
-  // Save assets to localStorage whenever they change
+  // Save assets to backend whenever they change
   useEffect(() => {
     localStorage.setItem('userAssets', JSON.stringify(assets));
   }, [assets]);
@@ -262,12 +289,13 @@ export const AssetsTab = () => {
         </div>
 
         <div className="space-y-4">
-          {assets.map((asset) => {
-            const Icon = categoryIcons[asset.category];
-            const color = categoryColors[asset.category];
+          {assets.map((asset, idx) => {
+            const Icon = categoryIcons[asset.category] || CreditCard;
+            const color = categoryColors[asset.category] || 'gray';
+            const key = asset.id || asset.name || `asset-${idx}`;
             return (
               <div
-                key={asset.id}
+                key={key}
                 className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 hover:shadow-md transition-shadow"
               >
                 <div className="flex items-center justify-between">

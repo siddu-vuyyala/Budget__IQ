@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { TrendingUp, ShieldAlert, BarChart } from 'lucide-react';
+import { SERVER_URL, authenticatedFetch } from '../../../utils';
+import { toast } from 'sonner';
 
 interface RiskLevel {
   value: number;
@@ -80,7 +82,69 @@ const riskLevels: RiskLevel[] = [
 
 export const RiskToleranceTab = () => {
   const [selectedRisk, setSelectedRisk] = useState<number>(3);
+  const [loading, setLoading] = useState(true);
   const currentRiskLevel = riskLevels.find(level => level.value === selectedRisk)!;
+
+  // Load risk tolerance from backend
+  useEffect(() => {
+    const fetchRiskTolerance = async () => {
+      try {
+        setLoading(true);
+        const response = await authenticatedFetch(`${SERVER_URL}/risk-tolerance`, { method: 'GET' });
+        if (!response.ok) {
+          if (response.status === 401) {
+            toast.error('Session expired. Please login again.');
+            return;
+          }
+          throw new Error('Failed to fetch risk tolerance');
+        }
+        const data = await response.json();
+        // Map tolerance string to number value
+        const toleranceMap: Record<string, number> = {
+          'conservative': 1,
+          'moderately_conservative': 2,
+          'moderate': 3,
+          'moderately_aggressive': 4,
+          'aggressive': 5
+        };
+        setSelectedRisk(toleranceMap[data.riskTolerance] || 3);
+      } catch (error) {
+        console.error('Error loading risk tolerance from backend:', error);
+        setSelectedRisk(3);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchRiskTolerance();
+  }, []);
+
+  // Save risk tolerance to backend when it changes
+  useEffect(() => {
+    const toleranceMap: Record<number, string> = {
+      1: 'conservative',
+      2: 'moderately_conservative',
+      3: 'moderate',
+      4: 'moderately_aggressive',
+      5: 'aggressive'
+    };
+
+    const saveRiskTolerance = async () => {
+      try {
+        await authenticatedFetch(`${SERVER_URL}/risk-tolerance`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ riskTolerance: toleranceMap[selectedRisk] })
+        });
+      } catch (error) {
+        console.error('Error saving risk tolerance to backend:', error);
+      }
+    };
+
+    if (!loading) {
+      saveRiskTolerance();
+    }
+  }, [selectedRisk, loading]);
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 space-y-8">
