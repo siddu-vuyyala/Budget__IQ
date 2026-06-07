@@ -2,7 +2,7 @@
 Flask
 Flask-Cors
 python-dotenv
-
+gunicorn
 # Database (using binary to avoid build issues)
 psycopg2-binary
 SQLAlchemy
